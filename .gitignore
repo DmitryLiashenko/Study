@@ -12,3 +12,9 @@ venv/
 # Игнорировать файлы Python байт-кода
 __pycache__/
 *.pyc
+
+#Log
+*.log
+
+#Secret
+*.env
