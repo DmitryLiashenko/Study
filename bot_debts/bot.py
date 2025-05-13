@@ -1,36 +1,48 @@
 import os
 import gspread
-
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+ 
 
-load_dotenv()  # Загружает переменные из .env
-
+# Загружает переменные из .env
+load_dotenv() 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-ALLOWED_USERNAMES = ["Pir_1202", "DmitryLiashenko"]
+allowed_users_raw = os.getenv("ALLOWED_USERNAMES", "")
+ALLOWED_USERNAMES = [user.strip() for user in allowed_users_raw.split(",") if user.strip()]
+AUTHORIZED_USERS = set()
 
 
-# Авторизация
+# ===== Авторизация для Google Sheets =====
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name('bot_debts/credentials.json', scope)
 client = gspread.authorize(creds)
-
-# Открытие таблицы
-SPREADSHEET_ID = SPREADSHEET_ID
 sheet = client.open_by_key(SPREADSHEET_ID).sheet1
 
 
+# ===== Команда /start — авторизация =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user.username in ALLOWED_USERNAMES:
+        AUTHORIZED_USERS.add(user.username)
+        await update.message.reply_text(f"Привет, @{user.username}! Вы успешно авторизованы.")
+    else:
+        await update.message.reply_text("Извините, у вас нет доступа к этому боту.")
+
+
+# ===== Команда /debts =====
 async def get_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.username not in AUTHORIZED_USERS:
+        await update.message.reply_text("Пожалуйста, авторизируйтесь сначала через команду /start.")
+        return
+
     try:
         data = sheet.get_all_values()
+        rows = data[1:15]  # строки 2-15
 
-        # Получаем нужный диапазон строк (со 2-й по 15-ю)
-        rows = data[1:15]
-
-        # Формируем три отдельных блока
         dolgimy = ["*ДОЛГИ МЫ*"]
         dolginam = ["*ДОЛГИ НАМ*"]
         kassa = ["*КАССА*"]
@@ -54,51 +66,23 @@ async def get_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if balance_value:
             balans.append(balance_value)
 
-        # Отправка сообщений
-        await update.callback_query.message.reply_text("\n".join(dolgimy), parse_mode='Markdown')
-        await update.callback_query.message.reply_text("\n".join(dolginam), parse_mode='Markdown')
-        await update.callback_query.message.reply_text("\n".join(kassa), parse_mode='Markdown')
-        await update.callback_query.message.reply_text("\n".join(balans), parse_mode='Markdown')
+
+        await update.message.reply_text("\n".join(dolgimy), parse_mode='Markdown')
+        await update.message.reply_text("\n".join(dolginam), parse_mode='Markdown')
+        await update.message.reply_text("\n".join(kassa), parse_mode='Markdown')
+        await update.message.reply_text("\n".join(balans), parse_mode='Markdown')
 
     except Exception as e:
-        await update.callback_query.message.reply_text(f"Ошибка: {e}")
-
-# Функция для отправки кнопки "Долги" при запуске бота
-async def send_debt_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("Долги", callback_data='data')]  # Создаем кнопку "Долги"
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Нажмите на кнопку, чтобы получить данные о долгах", reply_markup=reply_markup)
-
-# Обработка нажатия кнопки
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == 'data':
-        # Когда кнопка нажата, отправляем команду /data
-        await get_data(update, context)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    if user.username in ALLOWED_USERNAMES:
-        await update.message.reply_text(f"Привет, {user.username}! Ты авторизован.")
-    else:
-        await update.message.reply_text("Извините, у вас нет доступа к этому боту.")
+        await update.message.reply_text(f"Ошибка: {e}")
 
 
+# ===== Run Bot =====
 def main():
-    TELEGRAM_TOKEN = BOT_TOKEN
-
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-    # Заменяем команду /start на send_debt_button, чтобы кнопка отображалась сразу при входе
-    app.add_handler(CommandHandler("start", send_debt_button))  # Добавляем команду /start для отправки кнопки
-   # app.add_handler(CommandHandler("start", start))  # Функция start с проверкой ALLOWED_USERNAMES
-    app.add_handler(CallbackQueryHandler(button))  # Обрабатываем нажатие кнопки
-    app.add_handler(CommandHandler("data", get_data))  # Добавляем команду /data для вызова функции get_data
-
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("debts", get_data))
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
