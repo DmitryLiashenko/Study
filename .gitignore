@@ -55,3 +55,5 @@ pip-log.txt
 # Google / service accounts
 **/credentials.json
 **/*service-account*.json
+
+Study_backup/
