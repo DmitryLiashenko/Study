@@ -51,3 +51,7 @@ pip-log.txt
 
 # VS Code launch configs
 .vscode/launch.json
+
+# Google / service accounts
+**/credentials.json
+**/*service-account*.json
